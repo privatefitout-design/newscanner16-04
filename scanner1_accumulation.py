@@ -325,6 +325,21 @@ def pattern_d(symbol, k1d, k1h, oi_d, oi_1h):
     else:
         d['oi_falling'] = False
 
+    # EMA20 фильтр — не должна падать (даунтренд)
+    ema20 = k1d['close'].ewm(span=20, adjust=False).mean()
+    if len(ema20) >= 5 and ema20.iloc[-1] < ema20.iloc[-4]:
+        return 0, {}  # EMA20 падает — пропуск
+
+    # OI/цена ratio — мощный рост OI при тихой цене = бонус
+    if price_chg_6h > 0.1:
+        oi_price_ratio = round(oi_best / price_chg_6h, 1)
+    else:
+        oi_price_ratio = oi_best * 10  # цена стоит — ratio очень высокий
+    d['oi_price_ratio'] = oi_price_ratio
+    if oi_price_ratio > 50:   score += 15  # OI растёт сильно, цена стоит
+    elif oi_price_ratio > 20: score += 10
+    elif oi_price_ratio > 10: score += 5
+
     # Угол наклона OI на 6h и 12h окнах
     angle_6h  = oi_slope_angle(oi_1h['oi'].iloc[-6:])
     angle_12h = oi_slope_angle(oi_1h['oi'].iloc[-12:]) if len(oi_1h) >= 12 else 0
@@ -427,36 +442,27 @@ def fmt_signal(r, rank):
     pchg  = r.get('price_chg_24h_pct', '?')
     brange= r.get('base_range_pct', '?')
     bdays = r.get('base_days', '?')
-    oi3   = r.get('oi_3h_growth_pct', '?')
-    oi6   = r.get('oi_6h_growth_pct', '?')
     oi12  = r.get('oi_12h_growth_pct', '?')
     angle = r.get('oi_angle_12h', r.get('oi_angle_6h', '?'))
-    natr  = r.get('natr_awakening', '?')
 
-    if score >= 90:   badge = "🔥 EXCEPTIONAL"
-    elif score >= 75: badge = "⚡ STRONG+"
-    elif score >= 60: badge = "💪 STRONG"
-    elif score >= 40: badge = "📊 AVERAGE"
-    else:             badge = "📡 WATCH"
+    if score >= 80:   conf = "🔥"
+    elif score >= 65: conf = "✅"
+    else:             conf = "⚡"
 
     lines = [
-        "══════════════════════════",
-        "⚡ *" + sym + "*",
-        "🎯 Score: *" + str(score) + "* · " + badge,
-        "──────────────────────────",
-        "📦 База: `" + str(bdays) + "д` · диапазон `" + str(brange) + "%`",
-        "📐 OI угол: `" + str(angle) + "°` ↗",
-        "📈 OI: `+" + str(oi3) + "%` (3ч) · `+" + str(oi6) + "%` (6ч) · `+" + str(oi12) + "%` (12ч)",
-        "😴 Цена: `±" + str(pchg) + "%` · NATR x`" + str(natr) + "`",
-        "",
+        f"🟢 *LONG · Score: {score}* {conf}",
+        f"{'─' * 24}",
+        f"*{sym}*",
+        f"📐 OI угол: `{angle}°` ↗️",
+        f"📦 База: `{bdays}д` · сжатие `{brange}%`",
+        f"OI `+{oi12}%` (12ч) · цена спит `±{pchg}%`",
+        f"",
     ]
     return "\n".join(lines)
 
 def fmt_alert(results, total_scanned):
     now = datetime.now().strftime("%d.%m.%Y %H:%M")
-    count = len(results)
-    msg = "⚡ *SCREENER LABS*\n"
-    msg += "_" + now + " · найдено: " + str(count) + "_\n\n"
+    msg = f"_{now}_\n\n"
     for i, r in enumerate(results, 1):
         msg += fmt_signal(r, i)
     return msg
